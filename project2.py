@@ -34,67 +34,30 @@ def closure(R, F, S):
 
 ## Determine the all the attribute closure excluding superkeys that are not candidate keys given the schema R and functional dependency F
 def all_closures(R, F):
-    all_result = []
     # call the recursive worker function with initialized values
-    # result will be added to result by the workers
+    # result will be added to all_result array
+    # super_key_list is a helper list to keep all found super keys
+    all_result = []
     super_key_list = []
+    # calculate in order of the size of a subset
+    # because once a superkey k of size s is found
+    # all subsets with size > s and is a superset of k can be discarded
     for i in range(len(R)):
         all_set = []
+        # generate all subset with length i
         get_all_set_rec(R, i + 1, [], all_set, super_key_list)
         for subset in all_set:
+            # for each subset, calculate its closure
             closure_result = closure(R, F, subset)
+            # if it's a superkey, put it into super_key_list
             if is_subset(closure_result, R):
                 super_key_list.append(subset)
+            # add it to the final result
             result = [subset, closure_result]
             all_result.append(result)
     return all_result
     
 ## Return a minimal cover of the functional dependencies of a given schema R and functional dependencies F.
-def min_cover_step1(R, FD):
-    new_fd = []
-    # simplify right hand side
-    for dependency in FD:
-        left = dependency[0]
-        right = dependency[1]
-        for item in right:
-            new_fd.append([left, [item]])
-    closures = all_closures(R, FD)
-    new_fd = [item for item in new_fd if not is_subset(item[0], item[1])]
-    for fd_item in new_fd:
-        fd_left = fd_item[0]
-        for closure in closures:
-            closure_left = closure[0]
-            if len(closure_left) >= len(fd_left):
-                break
-            if is_subset(closure[1], fd_item[1]) and is_subset(fd_left, closure_left):
-                fd_item[0] = closure_left
-                break
-    return new_fd
-
-def min_cover_step2(R, new_fd):
-    to_continue = True
-    while to_continue:
-        to_continue = False
-        for i in range(len(new_fd)):
-            left = new_fd[i][0]
-            right = new_fd[i][1]
-            new_closures = all_closures(R, new_fd[:i] + new_fd[i + 1:])
-            for new_closure in new_closures:
-                if set_equals(new_closure[0], left):
-                    if is_subset(new_closure[1], right):
-                        new_fd.pop(i)
-                        to_continue = True
-                    break
-                # this rule is not found in all closures,
-                # meaning it is a super key hence redundant
-                if len(new_closure[0]) > len(left):
-                    new_fd.pop(i)
-                    to_continue = True
-                    break
-            if to_continue:
-                break
-    return new_fd
-
 def min_cover(R, FD):
     new_fd = min_cover_step1(R, FD)
     return min_cover_step2(R, new_fd)
@@ -233,50 +196,6 @@ def get_all_subset(current_list, remain_list, result):
     get_all_subset(current_list + [remain_list[0]], remain_list[1:], result)
     get_all_subset(current_list.copy(), remain_list[1:], result)
 
-def min_covers_bak(R, FD):
-    '''
-    Explain the rationale of the algorithm here.
-    '''
-    results = []
-    new_fds = min_covers_step1(R, FD)
-    for new_fd in new_fds:
-        fd_to_keep = []
-        fd_redundant = []
-        for i in range(len(new_fd)):
-            redundant = False
-            left = new_fd[i][0]
-            right = new_fd[i][1]
-            new_closures = all_closures(R, new_fd[:i] + new_fd[i+1:])
-            for new_closure in new_closures:
-                if set_equals(new_closure[0], left):
-                    if is_subset(new_closure[1], right):
-                        redundant = True
-                    break
-                # this rule is not found in all closures,
-                # meaning it is a super key hence redundant
-                if len(new_closure[0]) > len(left):
-                    redundant = True
-                    break
-            if redundant:
-                fd_redundant.append(new_fd[i])
-            else:
-                fd_to_keep.append(new_fd[i])
-        fd_redundant_perm = []
-        get_all_perm([], fd_redundant, fd_redundant_perm)
-        count = 1
-        for perm in fd_redundant_perm:
-            print(count)
-            count += 1
-            temp_result = min_cover_step2(R, perm + fd_to_keep)
-            is_new = True
-            for result in results:
-                if fd_equals(result, temp_result):
-                    is_new = False
-                    break
-            if is_new:
-                results.append(temp_result)
-    return results
-
 def fd_equals(fd1_list, fd2_list):
     if len(fd1_list) != len(fd2_list):
         return False
@@ -319,13 +238,19 @@ def is_subset(big, small):
     return True
 
 def get_all_set_rec(remaining_list, length, current_list, result_list, super_key_list):
+    # recursive function to find all subset of certain length
+    # furthermore the subset should not be a supreset of any superkey
     if len(super_key_list) > 0:
         for super_key in super_key_list:
+            # if current_list is a subset of any superkey,
+            #  stop as per requirment
             if is_subset(current_list, super_key):
                 return
+    # found a subset of required length, add it to result_list and return
     if len(current_list) == length:
         result_list.append(current_list)
         return
+    # no more item to explore, return
     if len(remaining_list) == 0:
         return
     item = remaining_list[0]
@@ -333,32 +258,96 @@ def get_all_set_rec(remaining_list, length, current_list, result_list, super_key
     current_list_copy.append(item)
     remaining_list_copy = remaining_list.copy()
     remaining_list_copy.remove(item)
+    # branch with 1st item in the remaining_list added to current_list
     get_all_set_rec(remaining_list_copy, length, current_list_copy, result_list, super_key_list)
+    # branch with 1st item in the remaining_list NOT added to current_list
     get_all_set_rec(remaining_list_copy, length, current_list.copy(), result_list, super_key_list)
+
+def min_cover_step1(R, FD):
+    new_fd = []
+    # simplify right hand side
+    for dependency in FD:
+        left = dependency[0]
+        right = dependency[1]
+        for item in right:
+            new_fd.append([left, [item]])
+    closures = all_closures(R, FD)
+    # remove trivial FD where RHS is a subset of LHS
+    new_fd = [item for item in new_fd if not is_subset(item[0], item[1])]
+    # for each FD, check whether there is a proper subset that can replace it
+    for fd_item in new_fd:
+        fd_left = fd_item[0]
+        for closure in closures:
+            closure_left = closure[0]
+            # if size is already greater or equal to LHS of this FD,
+            # no need to check further
+            # because the closures are ordered by the size of the set at LHS
+            if len(closure_left) >= len(fd_left):
+                break
+            # if RHS of this FD is a subset of RHS of a closure,
+            # and LHS of the closure is a proper subset of LHS of this FD
+            # simplify LHS of this FD by using LHS of the closure
+            if is_subset(closure[1], fd_item[1]) and is_subset(fd_left, closure_left):
+                fd_item[0] = closure_left
+                break
+    return new_fd
+
+def min_cover_step2(R, new_fd):
+    # flag whether to continue
+    to_continue = True
+    while to_continue:
+        # in each loop, init to_continue to False
+        to_continue = False
+        for i in range(len(new_fd)):
+            left = new_fd[i][0]
+            right = new_fd[i][1]
+            # calculte closures of the FD set by removing the ith FD
+            new_closures = all_closures(R, new_fd[:i] + new_fd[i + 1:])
+            for new_closure in new_closures:
+                # check whether this FD still exists in the new_closures
+                if set_equals(new_closure[0], left):
+                    if is_subset(new_closure[1], right):
+                        # if yest, then this FD is safe to be removed
+                        # remove it and set to_continue flag to True
+                        new_fd.pop(i)
+                        to_continue = True
+                    break
+                # this rule is not found in all closures,
+                # meaning it is a super key hence redundant
+                # remove it and set to_continue flag to True
+                if len(new_closure[0]) > len(left):
+                    new_fd.pop(i)
+                    to_continue = True
+                    break
+            # break the outer for loop and begin a new loop
+            # since new_fd has been modified
+            if to_continue:
+                break
+    return new_fd
 
 ## Main functions
 def main():
     ### Test case from the project
     R = ['A', 'B', 'C', 'D']
     FD = [[['A', 'B'], ['C']], [['C'], ['D']]]
-    # FD2 = [[['C', 'D'], ['A']], [['A'], ['B']]]
+    FD2 = [[['C', 'D'], ['A']], [['A'], ['B']]]
 
-    # print(closure(R, FD, ['A']))
-    # print(closure(R, FD, ['A', 'B']))
-    # print(all_closures(R, FD))
-    # print(all_closures(R, FD2))
+    print(closure(R, FD, ['A']))
+    print(closure(R, FD, ['A', 'B']))
+    print(all_closures(R, FD))
+    print(all_closures(R, FD2))
 
     R = ['A', 'B', 'C', 'D', 'E', 'F']
     FD = [[['A'], ['B', 'C']],[['B'], ['C','D']], [['D'], ['B']],[['A','B','E'], ['F']]]
     R2 = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
     FD2 = [[['A'], ['B']],[['A', 'B', 'C','D'], ['E']], [['E', 'F'], ['G', 'H']],[['A', 'C', 'D','F'], ['E', 'G']]]
-    # print(min_cover(R, FD))
-    # print(min_cover(R2, FD2))
+    print(min_cover(R, FD))
+    print(min_cover(R2, FD2))
 
     R = ['A', 'B', 'C']
     FD = [[['A', 'B'], ['C']],[['A'], ['B']], [['B'], ['A']]] 
-    # print(min_covers(R, FD))
-    # print(all_min_covers(R, FD))
+    print(min_covers(R, FD))
+    print(all_min_covers(R, FD))
 
     ### Add your own additional test cases if necessary
 
@@ -371,7 +360,7 @@ def main():
     print(min_cover(R, FD))
     print(min_covers(R, FD))
     print(all_min_covers(R, FD))
-    # print(all_min_covers(R2, FD2))
+    print(all_min_covers(R2, FD2))
 
 if __name__ == '__main__':
     main()
